@@ -1,0 +1,40 @@
+torch>=2.0.0
+transformers>=4.30.0
+yfinance>=0.2.20
+streamlit>=1.25.0
+gymnasium>=0.29.0
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+nltk>=3.8.0
+plotly>=5.15.0
+schedule>=1.2.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+vaderSentiment>=3.3.2
+joblib>=1.3.0
+ta>=0.10.2
+
+# === Phase A: Multi-source data & scheduling ===
+alpha-vantage>=1.0.0
+feedparser>=6.0.10
+apscheduler>=3.10.4
+
+# === Phase B: LLM Sentiment (4th method) ===
+openai>=1.12.0
+
+# === Phase C: RAG + Vector Store ===
+chromadb>=0.4.22
+sentence-transformers>=2.5.0
+statsmodels>=0.14.0
+
+# === Phase D: SHAP Explainability ===
+shap>=0.45.0
+
+# === Phase E: Engineering ===
+pytest>=8.0.0
+ruff>=0.3.0
+pyyaml>=6.0.1
+
+# === Dashboard enhancement ===
+streamlit-extras>=0.4.0
