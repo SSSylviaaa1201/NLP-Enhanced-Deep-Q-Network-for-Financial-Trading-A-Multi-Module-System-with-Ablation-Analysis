@@ -13,7 +13,20 @@ DB_PATH = ROOT_DIR / "data" / "trading.db"
 CHROMA_DIR = ROOT_DIR / "data" / "chroma_db"
 
 # --- Data Ingestion ---
-TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+TICKERS = [
+    # Tech
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+    # Financial
+    "JPM", "BAC", "V", "MA", "GS",
+    # Healthcare
+    "JNJ", "UNH", "PFE", "ABBV",
+    # Consumer
+    "KO", "PEP", "WMT", "COST", "NKE",
+    # Energy / Industrial
+    "XOM", "CVX", "CAT", "BA",
+    # Communication / Utilities
+    "DIS", "NFLX", "NEE",
+]
 START_DATE = "2020-01-01"
 END_DATE = "2024-12-31"
 NEWS_LOOKBACK_DAYS = 30
@@ -23,8 +36,14 @@ COLLECTION_INTERVAL_MINUTES = 60
 SCHEDULER_ENABLED = True
 
 # --- Data Sources Priority ---
-DATA_SOURCE_PRIORITY = ["yfinance", "alpha_vantage"]
+DATA_SOURCE_PRIORITY = ["alpha_vantage", "yfinance"]
 NEWS_SOURCE_PRIORITY = ["newsapi", "rss"]
+
+# --- RSS Configuration ---
+RSS_ENABLED = True
+RSS_MAX_PER_SOURCE = 20
+RSS_SOURCES = ["yahoo_finance", "google_news", "seeking_alpha", "marketwatch"]
+RSS_REQUEST_DELAY = 1
 
 # --- NLP Pipeline ---
 FINBERT_MODEL = "ProsusAI/finbert"

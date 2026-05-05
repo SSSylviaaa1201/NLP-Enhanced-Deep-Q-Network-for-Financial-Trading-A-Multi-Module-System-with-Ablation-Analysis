@@ -69,10 +69,19 @@ def show_db_stats():
     """Print current DB state."""
     import sqlite3
     conn = sqlite3.connect(str(DB.db_path))
+    date_cols = {
+        "market_data": "date",
+        "news": "published_at",
+        "sentiment_signals": "date",
+        "trading_logs": "date",
+    }
     for table in ["market_data", "news", "sentiment_signals", "trading_logs"]:
         count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        latest = conn.execute(f"SELECT MAX(date) FROM {table}").fetchone()[0] if count > 0 else "N/A"
-        print(f"  {table}: {count} rows, latest: {latest}")
+        if count > 0 and table in date_cols:
+            latest = conn.execute(f"SELECT MAX({date_cols[table]}) FROM {table}").fetchone()[0]
+            print(f"  {table}: {count} rows, latest: {latest}")
+        else:
+            print(f"  {table}: {count} rows")
     conn.close()
 
 

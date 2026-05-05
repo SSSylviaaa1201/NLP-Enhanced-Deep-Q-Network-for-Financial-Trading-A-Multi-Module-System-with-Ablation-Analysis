@@ -68,36 +68,48 @@ def fetch_ohlcv_alpha_vantage(ticker: str, start: str = "2020-01-01", end: Optio
         return None
 
     end = end or datetime.now().strftime("%Y-%m-%d")
-    try:
-        ts = TimeSeries(key=key, output_format="pandas")
-        df, meta = ts.get_daily(symbol=ticker, outputsize="full")
 
-        df = df.reset_index()
-        df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+    for av_attempt in range(1, 4):
+        try:
+            ts = TimeSeries(key=key, output_format="pandas")
+            df, meta = ts.get_daily(symbol=ticker, outputsize="compact")
 
-        col_map = {
-            "1._open": "open", "2._high": "high",
-            "3._low": "low", "4._close": "close", "5._volume": "volume",
-            "open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume",
-        }
-        df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+            df = df.reset_index()
+            # Normalize column names: "1. open" → "1_open" → "open"
+            df.columns = [c.strip().lower().replace(" ", "_").replace(".", "_") for c in df.columns]
 
-        if "date" not in df.columns and "index" in df.columns:
-            df = df.rename(columns={"index": "date"})
-        if "date" not in df.columns:
-            date_col = df.columns[0]
-            df = df.rename(columns={date_col: "date"})
+            col_map = {
+                "1__open": "open", "2__high": "high",
+                "3__low": "low", "4__close": "close", "5__volume": "volume",
+                "1_open": "open", "2_high": "high",
+                "3_low": "low", "4_close": "close", "5_volume": "volume",
+                "open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume",
+            }
+            df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
-        df["date"] = pd.to_datetime(df["date"])
-        df = df[(df["date"] >= start) & (df["date"] <= end)]
-        df["adjusted_close"] = df.get("close", df.iloc[:, -1])
+            if "date" not in df.columns and "index" in df.columns:
+                df = df.rename(columns={"index": "date"})
+            if "date" not in df.columns:
+                date_col = df.columns[0]
+                df = df.rename(columns={date_col: "date"})
 
-        keep_cols = ["date", "open", "high", "low", "close", "volume", "adjusted_close"]
-        available = [c for c in keep_cols if c in df.columns]
-        return df[available] if available else None
-    except Exception as e:
-        logger.warning("Alpha Vantage failed for %s: %s", ticker, e)
-        return None
+            df["date"] = pd.to_datetime(df["date"])
+            df = df[(df["date"] >= start) & (df["date"] <= end)]
+            df["adjusted_close"] = df.get("close", df.iloc[:, -1])
+
+            keep_cols = ["date", "open", "high", "low", "close", "volume", "adjusted_close"]
+            available = [c for c in keep_cols if c in df.columns]
+            if available:
+                logger.info("Alpha Vantage: %d rows for %s", len(df), ticker)
+                return df[available]
+        except Exception as e:
+            if av_attempt < 3:
+                logger.warning("Alpha Vantage attempt %d/3 for %s: %s", av_attempt, ticker, e)
+                time.sleep(2)
+            else:
+                logger.warning("Alpha Vantage failed for %s after 3 attempts", ticker)
+
+    return None
 
 
 def _try_yfinance(ticker: str, start: str, end: str) -> Optional[pd.DataFrame]:

@@ -1,4 +1,4 @@
-"""Fetch financial news: NewsAPI → RSS → sample fallback."""
+"""Fetch financial news: NewsAPI → RSS (rss_fetcher) → sample fallback."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-import feedparser
 import pandas as pd
 import requests
 
@@ -15,11 +14,6 @@ from config import TICKERS, NEWS_LOOKBACK_DAYS, NEWSAPI_KEY
 logger = logging.getLogger(__name__)
 
 NEWSAPI_URL = "https://newsapi.org/v2/everything"
-
-RSS_FEEDS = {
-    "yahoo_finance": "https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US",
-    "google_news": "https://news.google.com/rss/search?q={ticker}+stock&hl=en-US&gl=US&ceid=US:en",
-}
 
 
 def fetch_news_newsapi(
@@ -66,32 +60,10 @@ def fetch_news_newsapi(
     return records
 
 
-def fetch_news_rss(ticker: str, max_articles: int = 30) -> list[dict]:
-    """Fetch news via RSS feeds as free fallback when NewsAPI is unavailable."""
-    records = []
-    seen_urls = set()
-    for source_name, url_template in RSS_FEEDS.items():
-        try:
-            url = url_template.format(ticker=ticker)
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:max_articles]:
-                link = entry.get("link", "")
-                if link in seen_urls:
-                    continue
-                seen_urls.add(link)
-                published = entry.get("published") or entry.get("updated", "")
-                records.append({
-                    "ticker": ticker,
-                    "source": f"rss_{source_name}",
-                    "title": entry.get("title", ""),
-                    "content": entry.get("description") or entry.get("summary", ""),
-                    "url": link,
-                    "published_at": published,
-                })
-        except Exception:
-            logger.debug("RSS feed %s failed for %s", source_name, ticker)
-            continue
-    return records
+def _fetch_rss_fallback(ticker: str) -> list[dict]:
+    """Fetch news via rss_fetcher module (4 sources) as fallback."""
+    from data_ingestion.rss_fetcher import fetch_news_rss
+    return fetch_news_rss(ticker, max_per_source=30)
 
 
 def fetch_news_for_all_tickers(
@@ -109,9 +81,9 @@ def fetch_news_for_all_tickers(
             logger.info("NewsAPI: %d articles for %s", len(records), t)
             continue
 
-        # RSS fallback
-        logger.info("NewsAPI failed for %s, trying RSS...", t)
-        records = fetch_news_rss(t)
+        # RSS fallback (4 sources: Yahoo Finance + Google News + Seeking Alpha + MarketWatch)
+        logger.info("NewsAPI exhausted, trying 4-source RSS feeds for %s...", t)
+        records = _fetch_rss_fallback(t)
         if records:
             all_records.extend(records)
             logger.info("RSS: %d articles for %s", len(records), t)
