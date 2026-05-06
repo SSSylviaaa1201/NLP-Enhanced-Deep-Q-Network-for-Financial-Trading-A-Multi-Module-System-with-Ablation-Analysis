@@ -166,15 +166,18 @@ def build_rl_features(db: DatabaseManager, with_sentiment: bool = True) -> dict[
 
         # Attach sentiment if requested
         if with_sentiment:
-            sent_df = db.get_sentiment(ticker)  # all methods
+            sent_df = db.get_sentiment(ticker)
             if not sent_df.empty:
-                # Average across methods per date
                 daily_sent = sent_df.groupby("date")["sentiment_score"].mean().reset_index()
+                daily_sent = daily_sent.rename(columns={"sentiment_score": "sent"})
                 daily_sent["date"] = pd.to_datetime(daily_sent["date"])
                 df["date"] = pd.to_datetime(df["date"]).dt.date
                 daily_sent["date"] = daily_sent["date"].dt.date
                 df = df.merge(daily_sent, on="date", how="left")
-            df["sentiment_score"] = df["sentiment_score"].fillna(0.0)
+                df["sentiment_score"] = df["sent"].fillna(0.0)
+                df = df.drop(columns=["sent"])
+            else:
+                df["sentiment_score"] = 0.0
         else:
             df["sentiment_score"] = 0.0
 
@@ -316,25 +319,25 @@ def main():
     if not args.skip_nlp:
         step_nlp(db)
 
-    # Build features (with sentiment)
-    feature_dfs = build_rl_features(db, with_sentiment=True)
-
-    # Train & evaluate
-    results = step_train_evaluate(feature_dfs, episodes=config.EPISODES, label="[with NLP]")
-
-    # Print final results
-    logger.info("\n" + "=" * 60)
-    logger.info("FINAL RESULTS")
-    logger.info("=" * 60)
-    for ticker, m in results.items():
-        logger.info(
-            f"{ticker}: Sharpe={m['sharpe_ratio']:.4f}, MDD={m['max_drawdown']:.4f}, "
-            f"Return={m['total_return']:.4f}, BH Return={m['buy_and_hold_return']:.4f}"
-        )
-
-    # Ablation study
+    # Ablation study (NLP vs. No-NLP) — skips normal train/eval when enabled
     if args.ablate:
         step_ablation(db)
+    else:
+        # Build features (with sentiment)
+        feature_dfs = build_rl_features(db, with_sentiment=True)
+
+        # Train & evaluate
+        results = step_train_evaluate(feature_dfs, episodes=config.EPISODES, label="[with NLP]")
+
+        # Print final results
+        logger.info("\n" + "=" * 60)
+        logger.info("FINAL RESULTS")
+        logger.info("=" * 60)
+        for ticker, m in results.items():
+            logger.info(
+                f"{ticker}: Sharpe={m['sharpe_ratio']:.4f}, MDD={m['max_drawdown']:.4f}, "
+                f"Return={m['total_return']:.4f}, BH Return={m['buy_and_hold_return']:.4f}"
+            )
 
     logger.info("\n=== Pipeline complete. Launch dashboard: streamlit run dashboard/app.py ===")
 

@@ -31,12 +31,13 @@ START_DATE = "2020-01-01"
 END_DATE = "2024-12-31"
 NEWS_LOOKBACK_DAYS = 30
 COLLECTION_INTERVAL_MINUTES = 60
+TICKER_DELAY = 3  # seconds between ticker requests
 
 # --- Scheduler ---
 SCHEDULER_ENABLED = True
 
 # --- Data Sources Priority ---
-DATA_SOURCE_PRIORITY = ["yfinance", "alpha_vantage"]
+DATA_SOURCE_PRIORITY = ["yahoo_direct", "yfinance", "alpha_vantage"]
 NEWS_SOURCE_PRIORITY = ["newsapi", "rss"]
 
 # --- RSS Configuration ---

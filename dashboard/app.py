@@ -357,24 +357,24 @@ with main_col:
         trades = None
 
     fig = create_candlestick_chart(market_df.tail(200), trades)
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, key="candlestick", use_container_width=True, config={"displayModeBar": False})
 
     # Row 2: RSI | MACD
     c_ta1, c_ta2 = st.columns(2)
     with c_ta1:
         st.markdown("#### 📊 RSI (14)")
         fig_rsi = create_rsi_chart(market_df.tail(200))
-        st.plotly_chart(fig_rsi, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_rsi, key="rsi", use_container_width=True, config={"displayModeBar": False})
     with c_ta2:
         st.markdown("#### 📉 MACD")
         fig_macd = create_macd_chart(market_df.tail(200))
-        st.plotly_chart(fig_macd, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_macd, key="macd", use_container_width=True, config={"displayModeBar": False})
 
     # Row 3: Sentiment
     st.markdown("#### 🧠 NLP Sentiment Signals (4 Methods)")
     if has_sentiment:
         fig_sent = create_sentiment_quad(sentiment_df)
-        st.plotly_chart(fig_sent, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_sent, key="sentiment", use_container_width=True, config={"displayModeBar": False})
     else:
         st.info("Run `python main.py --skip-collect` to generate sentiment data.")
 
@@ -387,7 +387,7 @@ with main_col:
         c_perf1, c_perf2 = st.columns(2)
         with c_perf1:
             fig_eq = create_equity_curve(ep_logs, INITIAL_CAPITAL)
-            st.plotly_chart(fig_eq, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig_eq, key="equity", use_container_width=True, config={"displayModeBar": False})
         with c_perf2:
             # Drawdown
             cummax = ep_logs["portfolio_value"].cummax()
@@ -399,7 +399,7 @@ with main_col:
                 fill="tozeroy", fillcolor="rgba(239,68,68,0.12)",
             ))
             fig_dd.update_layout(template=DARK_TEMPLATE, height=300, yaxis_title="Drawdown (%)")
-            st.plotly_chart(fig_dd, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig_dd, key="drawdown", use_container_width=True, config={"displayModeBar": False})
 
     # Row 5: Market Heatmap
     st.markdown("#### 🔥 Market Heatmap")
@@ -410,7 +410,7 @@ with main_col:
             pct_changes[t] = (mkt["close"].iloc[-1] - mkt["close"].iloc[-2]) / mkt["close"].iloc[-2] * 100
     if pct_changes:
         fig_hm = create_heatmap(pct_changes)
-        st.plotly_chart(fig_hm, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_hm, key="heatmap", use_container_width=True, config={"displayModeBar": False})
 
 # ── Side Panel ────────────────────────────────────────────────────────
 
