@@ -92,7 +92,7 @@ def step_nlp(db: DatabaseManager) -> pd.DataFrame:
             logger.info("  %s: sentiment already exists (%d methods), skipping", ticker, existing["method"].nunique())
             continue
 
-        news_df = db.get_news(ticker, limit=200)
+        news_df = db.get_news(ticker, limit=2000)  # process all available news, not just 200
         if news_df.empty:
             logger.warning("  %s: no news, skipping", ticker)
             continue
@@ -215,6 +215,10 @@ def build_rl_features(db: DatabaseManager, with_sentiment: bool = True) -> dict[
             logger.warning("  %s: no market data, skipping", ticker)
             continue
 
+        # Align market data to news period to fix sentiment sparsity
+        sent_df = db.get_sentiment(ticker)
+        market_df = _align_market_to_news(market_df, sent_df)
+
         # Compute technical indicators
         df = compute_indicators(market_df)
         df = df.reset_index(drop=True)  # ensure clean index, date as column only
@@ -299,6 +303,31 @@ def step_train_evaluate(
 # STEP 5: Ablation Study
 # ──────────────────────────────────────────────────────────────────────
 
+def _align_market_to_news(
+    market_df: pd.DataFrame, sent_df: pd.DataFrame, lookback_padding: int = 200
+) -> pd.DataFrame:
+    """
+    Truncate market data to match news coverage period + padding for indicators.
+    Fixes the core sparsity bug: market data 2020-2026 but news only 2025-2026.
+    """
+    if sent_df.empty:
+        return market_df
+
+    sent_dates = pd.to_datetime(sent_df["date"].unique())
+    first_news = sent_dates.min().date()
+    market_df["date"] = pd.to_datetime(market_df["date"]).dt.date
+    # Start padding days before first news to allow MA/indicator warmup
+    cutoff = first_news - pd.Timedelta(days=lookback_padding)
+    truncated = market_df[market_df["date"] >= cutoff]
+    if len(truncated) < 100:
+        logger.warning("Market data after news-alignment too short (%d rows), using full range", len(truncated))
+        return market_df
+    logger.info("  Market data aligned: %d rows (was %d), density %.1f%%",
+                len(truncated), len(market_df),
+                100 * sent_df["date"].nunique() / max(len(truncated), 1))
+    return truncated
+
+
 def step_ablation(db: DatabaseManager) -> dict:
     """Run the ablation study: RL with vs. without NLP sentiment signal."""
     logger.info("=" * 60)
@@ -314,11 +343,14 @@ def step_ablation(db: DatabaseManager) -> dict:
         if market_df.empty:
             continue
 
+        # Align market data to news period to fix sentiment sparsity
+        sent_df = db.get_sentiment(ticker)
+        market_df = _align_market_to_news(market_df, sent_df)
+
         df_base = compute_indicators(market_df).reset_index(drop=True)
         df_base["date"] = pd.to_datetime(df_base["date"]).dt.date
 
         # With NLP sentiment (consensus → EMA → gate)
-        sent_df = db.get_sentiment(ticker)
         if not sent_df.empty:
             signal = _process_sentiment_signal(sent_df)
             if not signal.empty:
