@@ -51,6 +51,9 @@ def start_scheduler(db: DatabaseManager | None = None, paper_trading: bool = Fal
                        If False, runs only ingest+NLP.
     """
     global _scheduler
+    if not config.SCHEDULER_ENABLED:
+        logger.info("Scheduler disabled (SCHEDULER_ENABLED=False)")
+        return None
     if _scheduler and _scheduler.running:
         logger.warning("Scheduler already running")
         return _scheduler

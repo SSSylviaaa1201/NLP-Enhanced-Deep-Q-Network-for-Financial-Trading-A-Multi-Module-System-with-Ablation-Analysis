@@ -81,12 +81,12 @@ EPSILON_DECAY = 0.97
 LEARNING_RATE = 1e-3
 BATCH_SIZE = 64
 REPLAY_BUFFER_SIZE = 20_000
-TARGET_UPDATE_FREQ = 10
+TARGET_UPDATE_FREQ = 5
 DQN_SEED = 42  # default seed for reproducible training; set to None for random
 DQN_SEEDS = [42, 123, 456]  # multiple seeds for variance quantification (ablation mode)
 
 # Ablation multi-seed (set True to quantify DQN training variance; adds ~3× runtime)
-ABLATION_MULTI_SEED = False
+ABLATION_MULTI_SEED = True
 
 # Walk-forward validation
 TRAIN_SPLIT = 0.6

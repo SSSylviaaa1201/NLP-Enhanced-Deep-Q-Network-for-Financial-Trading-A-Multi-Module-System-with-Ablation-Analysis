@@ -392,7 +392,7 @@ def step_ablation(db: DatabaseManager) -> dict:
 
         seeds = config.DQN_SEEDS if config.ABLATION_MULTI_SEED else None
         logger.info("Running ablation for %s... (seeds=%s)", ticker, seeds)
-        result = run_ablation_study(df_with, df_without, seeds=seeds)
+        result = run_ablation_study(df_with, df_without, seeds=seeds, episodes=config.EPISODES)
         ablation_results[ticker] = result
 
     # ── Layer 0: Seed Variance (only when multi-seed enabled) ──
