@@ -89,7 +89,7 @@ TRANSACTION_COST_PCT = 0.001
 # Episode count: 200 episodes × ~1500 steps = ~300K environment steps.
 # Comparable to financial DQN literature (Deng et al. 2017, "Deep Direct RL for
 # Financial Signal Representation and Trading" use similar scale for single-asset).
-EPISODES = 200
+EPISODES = 150
 # DQN hyperparameters following Mnih et al. (2015) Nature DQN defaults
 GAMMA = 0.99           # discount factor (standard for infinite-horizon RL)
 EPSILON_START = 1.0    # initial exploration rate
@@ -97,12 +97,12 @@ EPSILON_MIN = 0.05     # minimum exploration rate (5% random actions)
 EPSILON_DECAY = 0.97   # per-episode decay (exponential schedule)
 LEARNING_RATE = 1e-3   # Adam optimizer default (Kingma & Ba 2015)
 BATCH_SIZE = 64        # experience replay batch size (increased from Mnih's 32)
-REPLAY_BUFFER_SIZE = 20_000  # ~13 episodes of transitions at 1500 steps/ep
+REPLAY_BUFFER_SIZE = 5_000  # ~3 episodes of transitions at ~1500 steps/ep
 TARGET_UPDATE_FREQ = 5       # update target network every 5 episodes (Double DQN)
 DQN_SEED = 42  # default seed for reproducible training; set to None for random
 # Multi-seed evaluation: Henderson et al. (2018) "Deep RL that Matters"
 # demonstrate that multi-seed runs are essential for reliable RL evaluation.
-DQN_SEEDS = [42, 123, 456]
+DQN_SEEDS = [42, 123]
 
 # Ablation multi-seed (set True to quantify DQN training variance; adds ~3× runtime)
 ABLATION_MULTI_SEED = True

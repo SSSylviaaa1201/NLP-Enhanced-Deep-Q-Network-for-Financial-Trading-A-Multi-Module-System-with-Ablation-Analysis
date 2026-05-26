@@ -217,14 +217,18 @@ def run_dqn_vs_bh_tests(
     mc_fdr = multiple_comparison_correction(individual_p, "fdr_bh")
 
     # Interpretation
-    if t_test["significant_05"] and not boot_ci["zero_in_ci_95"]:
+    mean_diff = t_test.get("mean_diff", 0)
+    dqn_worse = mean_diff < 0
+    direction = "underperforms" if dqn_worse else "outperforms"
+
+    if t_test.get("significant_05", False) and not boot_ci.get("zero_in_ci_95", True):
         interpretation = (
-            "DQN significantly outperforms BH (p < 0.05, bootstrap CI excludes zero). "
-            f"Effect size: {t_test['effect_size']} (Cohen's d = {t_test['cohens_d']:.3f})."
+            f"DQN significantly {direction} BH (p < 0.05, bootstrap CI excludes zero). "
+            f"Effect size: {t_test.get('effect_size', 'N/A')} (Cohen's d = {t_test.get('cohens_d', 0):.3f})."
         )
-    elif t_test["significant_05"]:
+    elif t_test.get("significant_05", False):
         interpretation = (
-            "DQN Sharpe difference is statistically significant by t-test (p < 0.05) "
+            f"DQN Sharpe difference is statistically significant by t-test (p < 0.05) "
             "but bootstrap CI includes zero — effect is fragile."
         )
     elif binomial_sharpe["p_value"] < 0.05:

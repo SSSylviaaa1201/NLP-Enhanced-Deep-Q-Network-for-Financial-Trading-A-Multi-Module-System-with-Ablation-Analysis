@@ -1,14 +1,12 @@
 """Training loop with walk-forward validation and convergence analysis."""
 
-import json
 import logging
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 
-from config import EPISODES, TRAIN_SPLIT, VAL_SPLIT, INITIAL_CAPITAL, DATA_DIR
+from config import EPISODES, TRAIN_SPLIT, VAL_SPLIT, INITIAL_CAPITAL
 from rl_engine.dqn import DQNAgent
 from rl_engine.env import FinancialTradingEnv
 
@@ -50,16 +48,11 @@ def run_episode(
             agent.update()
 
         logs.append({
-            "episode": episode,
-            "ticker": ticker,
-            "step": env.current_step,
-            "action": action,
-            "price": info["price"],
-            "portfolio_value": info["portfolio_value"],
-            "cash": info["cash"],
-            "shares": info["shares"],
-            "reward": reward,
-            "sentiment_score": info.get("sentiment_score", 0.0),
+            "episode": episode, "ticker": ticker,
+            "step": env.current_step, "action": action,
+            "price": info["price"], "portfolio_value": info["portfolio_value"],
+            "cash": info["cash"], "shares": info["shares"],
+            "reward": reward, "sentiment_score": info.get("sentiment_score", 0.0),
             "date": info.get("date", None),
         })
 
@@ -81,10 +74,7 @@ def train_dqn(
     alignment_scale: Optional[float] = None,
     turnover_penalty: Optional[float] = None,
 ) -> DQNAgent:
-    """Train DQN agent on training data with optional validation.
-
-    alignment_scale / turnover_penalty: override config defaults for sensitivity analysis.
-    """
+    """Train DQN agent on training data with optional validation."""
 
     if agent is None:
         agent = DQNAgent(seed=seed)
@@ -101,7 +91,6 @@ def train_dqn(
 
     best_val_return = -np.inf
     episode_rewards = []
-    val_rewards_log = []  # track validation rewards for overfitting detection
 
     for ep in range(1, episodes + 1):
         train_reward, _ = run_episode(train_env, agent, train=True, episode=ep, ticker=ticker)
@@ -110,113 +99,91 @@ def train_dqn(
 
         if (val_env is not None) and (ep % 10 == 0):
             val_reward, _ = run_episode(val_env, agent, train=False, episode=ep, ticker=ticker)
-            val_rewards_log.append((ep, val_reward))
             if val_reward > best_val_return:
                 best_val_return = val_reward
-                agent.save()
+                agent.save_checkpoint()
 
         if ep % 50 == 0:
             avg_reward = np.mean(episode_rewards[-50:])
             logger.info("Episode %d/%d | avg_reward=%.2f | epsilon=%.4f",
                         ep, episodes, avg_reward, agent.epsilon)
 
-    # ── Convergence analysis ──
     rewards = np.array(episode_rewards)
-    n_eps = len(rewards)
-    first_half = np.mean(rewards[:n_eps // 2]) if n_eps >= 4 else 0.0
-    second_half = np.mean(rewards[n_eps // 2:]) if n_eps >= 2 else 0.0
-    conv_ratio = second_half / max(abs(first_half), 1e-8)
+    n = len(rewards)
+    first = np.mean(rewards[:n // 2]) if n >= 4 else 0.0
+    second = np.mean(rewards[n // 2:]) if n >= 2 else 0.0
+    slope = np.polyfit(np.arange(n), rewards, 1)[0] if n >= 2 else 0.0
+    tail = rewards[-max(10, n // 4):]
+    tail_cv = float(np.std(tail) / max(abs(np.mean(tail)), 1e-8))
 
-    # Linear trend slope (positive = still improving)
-    x = np.arange(len(rewards))
-    slope = np.polyfit(x, rewards, 1)[0] if len(rewards) >= 2 else 0.0
-    # Coefficient of variation in last 25% (lower = more stable = converged)
-    tail_n = max(10, n_eps // 4)
-    tail_cv = float(np.std(rewards[-tail_n:]) / max(abs(np.mean(rewards[-tail_n:])), 1e-8))
-    plateau_converged = tail_cv < 0.3 and abs(slope) < 1e-5
+    logger.info("Train done. best_val=%.2f | reward 1st=%.3f 2nd=%.3f | slope=%.5f | tail_cv=%.2f",
+                best_val_return, first, second, slope, tail_cv)
 
-    # Overfitting check: train vs val divergence in later episodes
-    overfit_warning = False
-    if len(val_rewards_log) >= 2:
-        val_episodes, val_rewards = zip(*val_rewards_log)
-        # Check if train improves while val degrades in last 40% of val evals
-        split_idx = len(val_episodes) * 3 // 5
-        early_val = np.mean(val_rewards[:split_idx])
-        late_val = np.mean(val_rewards[split_idx:])
-        early_train = np.mean(rewards[:n_eps // 2])
-        late_train = np.mean(rewards[n_eps // 2:])
-        if late_train > early_train and late_val < early_val:
-            overfit_warning = True
-            logger.warning("Overfitting: train reward ↑ (%.4f→%.4f) but val reward ↓ (%.4f→%.4f)",
-                          early_train, late_train, early_val, late_val)
-
-    # Compute convergence interpretation
-    if plateau_converged:
-        conv_interpretation = (
-            "Policy has converged (plateau detected). "
-            "The agent has found a stable strategy — further training yields diminishing returns. "
-            "However, convergence on training data does NOT guarantee out-of-sample performance; "
-            "check test-set metrics for generalization."
-        )
-    elif slope > 0.001:
-        conv_interpretation = (
-            "Policy still improving (positive trend, slope={:.5f}). "
-            "More episodes may yield better performance but risk overfitting.".format(slope)
-        )
-    elif overfit_warning:
-        conv_interpretation = (
-            "Overfitting detected: train reward rising while validation reward falling. "
-            "The agent is memorizing training patterns rather than learning generalizable signals. "
-            "Recommend: reduce episodes, increase regularization, or simplify state space."
-        )
-    else:
-        conv_interpretation = (
-            "Policy shows no clear convergence or divergence. "
-            "The agent may be exploring a noisy reward landscape; multi-seed analysis is recommended "
-            "to distinguish signal from DQN training variance."
-        )
-
-    logger.info("Training complete. Best val return: %.2f", best_val_return)
-    logger.info("Convergence: first_half=%.4f, second_half=%.4f, ratio=%.2f, slope=%.6f",
-                first_half, second_half, conv_ratio, slope)
-    logger.info("  Tail CV=%.3f (%.4f±%.4f), Plateau=%s, Overfitting=%s",
-                tail_cv, np.mean(rewards[-tail_n:]), np.std(rewards[-tail_n:]),
-                plateau_converged, overfit_warning)
-    logger.info("  Interpretation: %s", conv_interpretation)
-
-    # Save training curve with diagnostics
-    try:
-        curve_path = Path(DATA_DIR) / "training_curves"
-        curve_path.mkdir(parents=True, exist_ok=True)
-        safe_name = ticker.replace("/", "_") if ticker else "latest"
-        np.savez_compressed(curve_path / f"{safe_name}_rewards.npz",
-                            rewards=rewards, conv_ratio=conv_ratio, slope=slope,
-                            tail_cv=tail_cv, plateau_converged=plateau_converged,
-                            overfit_warning=overfit_warning,
-                            val_episodes=np.array([v[0] for v in val_rewards_log]) if val_rewards_log else np.array([]),
-                            val_rewards=np.array([v[1] for v in val_rewards_log]) if val_rewards_log else np.array([]))
-    except Exception:
-        pass
-
-    # Load best checkpoint (not the final potentially-overfit model)
     if best_val_return > -np.inf:
-        agent.load()
+        agent.load_checkpoint()
+    agent.save()  # final model to disk for paper_trader/dashboard
     return agent
 
 
-def evaluate_agent(
+def backtest(
     agent: DQNAgent,
     df: pd.DataFrame,
+    bh_metrics: Optional[dict] = None,
     initial_capital: float = INITIAL_CAPITAL,
     episode: int = 0,
     ticker: str = "",
     sentiment_bonus_enabled: bool = True,
-) -> tuple[pd.DataFrame, float]:
-    """Run agent on data and return log DataFrame + total return."""
+) -> dict:
+    """Run a full backtest and return performance metrics.
+
+    If bh_metrics is provided, B&H is not recomputed — use pre-computed values.
+    """
+    from utils.metrics import sharpe_ratio, max_drawdown
+
     env = FinancialTradingEnv(df, initial_capital=initial_capital,
                               sentiment_bonus_enabled=sentiment_bonus_enabled)
     total_reward, logs = run_episode(env, agent, train=False, episode=episode, ticker=ticker)
 
     log_df = pd.DataFrame(logs)
-    log_df["returns"] = log_df["portfolio_value"].pct_change().fillna(0)
-    return log_df, total_reward
+    equity = log_df["portfolio_value"]
+    returns = equity.pct_change().fillna(0)
+
+    result = {
+        "total_return": float(equity.iloc[-1] / equity.iloc[0] - 1),
+        "sharpe_ratio": sharpe_ratio(returns),
+        "max_drawdown": max_drawdown(equity),
+        "final_portfolio_value": float(equity.iloc[-1]),
+        "n_trades": int((log_df["action"] != 0).sum()),
+        "log_df": log_df,
+    }
+
+    if bh_metrics is not None:
+        result.update({f"buy_and_hold_{k}": v for k, v in bh_metrics.items()})
+    else:
+        from config import TRANSACTION_COST_PCT
+        price0 = float(df["close"].iloc[0])
+        tc = TRANSACTION_COST_PCT
+        bh_shares = int(initial_capital / (price0 * (1 + tc)))
+        bh_equity = df["close"] * bh_shares + (initial_capital - price0 * bh_shares * (1 + tc))
+        result["buy_and_hold_return"] = float(bh_equity.iloc[-1] / initial_capital - 1)
+        result["buy_and_hold_sharpe"] = sharpe_ratio(bh_equity.pct_change().dropna())
+        result["buy_and_hold_mdd"] = max_drawdown(bh_equity)
+
+    return result
+
+
+def compute_bh_metrics(df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL) -> dict:
+    """Compute Buy-and-Hold benchmark metrics once per ticker/test-set."""
+    from utils.metrics import sharpe_ratio, max_drawdown
+    from config import TRANSACTION_COST_PCT
+
+    price0 = float(df["close"].iloc[0])
+    tc = TRANSACTION_COST_PCT
+    bh_shares = int(initial_capital / (price0 * (1 + tc)))
+    bh_equity = df["close"] * bh_shares + (initial_capital - price0 * bh_shares * (1 + tc))
+
+    return {
+        "return": float(bh_equity.iloc[-1] / initial_capital - 1),
+        "sharpe": sharpe_ratio(bh_equity.pct_change().dropna()),
+        "mdd": max_drawdown(bh_equity),
+    }

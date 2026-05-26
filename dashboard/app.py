@@ -661,6 +661,8 @@ with main_col:
     has_single = single_file.exists() if single_file else False
     has_legacy = legacy_file.exists() if legacy_file else False
 
+    # Training curves are only available when explicitly saved (not in ablation mode).
+    # Ablation results are displayed via the ablation summary table instead.
     if has_multi or has_single or has_legacy:
         st.markdown('<p class="section-header">Convergence</p>', unsafe_allow_html=True)
         try:

@@ -302,35 +302,6 @@ def build_rl_features(db: DatabaseManager, with_sentiment: bool = True) -> dict[
 # Helpers
 # ──────────────────────────────────────────────────────────────────────
 
-def _prepare_log_records(log_df: pd.DataFrame, ticker: str, episode: int = 1) -> list[dict]:
-    """Convert evaluate_agent log_df to insert_trading_log-compatible records."""
-    action_map = {0: "hold", 1: "buy", 2: "sell"}
-    records = []
-    for _, row in log_df.iterrows():
-        date_val = row.get("date", None)
-        if isinstance(date_val, pd.Timestamp):
-            date_val = date_val.strftime("%Y-%m-%d")
-        elif date_val is not None:
-            date_val = str(date_val)
-
-        action_val = row.get("action", 0)
-        if isinstance(action_val, (int, float)):
-            action_val = action_map.get(int(action_val), "hold")
-
-        records.append({
-            "episode": int(row.get("episode", episode)),
-            "step": int(row.get("step", 0)),
-            "ticker": str(row.get("ticker", ticker)),
-            "date": date_val,
-            "action": action_val,
-            "price": float(row.get("price", 0)),
-            "position": int(row.get("shares", 0)),
-            "cash": float(row.get("cash", 0)),
-            "portfolio_value": float(row.get("portfolio_value", 0)),
-            "sentiment_score": float(row.get("sentiment_score", 0)),
-            "reward": float(row.get("reward", 0)),
-        })
-    return records
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -348,8 +319,7 @@ def step_train_evaluate(
     logger.info("STEP 3: RL Training & Evaluation %s", label)
     logger.info("=" * 60)
 
-    from rl_engine.evaluation import backtest, walk_forward_split
-    from rl_engine.train import train_dqn
+    from rl_engine.train import train_dqn, backtest, walk_forward_split
 
     results = {}
 
@@ -359,21 +329,13 @@ def step_train_evaluate(
         train_df, val_df, test_df = walk_forward_split(df)
         logger.info("  Split: train=%d, val=%d, test=%d", len(train_df), len(val_df), len(test_df))
 
-        # Train
         logger.info("  Training DQN (%d episodes)...", episodes)
         agent = train_dqn(train_df, val_df, episodes=episodes, ticker=ticker)
 
-        # Backtest
         logger.info("  Backtesting...")
         metrics = backtest(agent, test_df, episode=1, ticker=ticker)
         metrics["ticker"] = ticker
         results[ticker] = metrics
-
-        # Persist trading logs for dashboard
-        if db is not None and not metrics["log_df"].empty:
-            log_records = _prepare_log_records(metrics["log_df"], ticker, episode=1)
-            db.insert_trading_log(log_records)
-            logger.info("  Saved %d trading log rows for %s", len(log_records), ticker)
 
         logger.info("  %s: Sharpe=%.4f, MDD=%.4f, Return=%.4f, BH Return=%.4f",
                     ticker, metrics["sharpe_ratio"], metrics["max_drawdown"],
@@ -416,6 +378,9 @@ def step_ablation(db: DatabaseManager) -> dict:
     logger.info("=" * 60)
     logger.info("STEP 4: Ablation Study — NLP vs. No-NLP")
     logger.info("=" * 60)
+
+    import json as _json, os as _os
+    _checkpoint_file = _os.path.join(_os.path.dirname(__file__), "data", "ablation_checkpoint.json")
 
     from rl_engine.evaluation import run_ablation_study
 
@@ -470,28 +435,11 @@ def step_ablation(db: DatabaseManager) -> dict:
                                     episodes=config.EPISODES, ticker=ticker)
         ablation_results[ticker] = result
 
-        # Persist trading logs from ablation (best seed for each condition)
-        for condition in ["with_nlp", "without_nlp"]:
-            if "seed_details" in result[condition]:
-                for ep, detail in enumerate(result[condition]["seed_details"], 1):
-                    if "log_df" in detail and not detail["log_df"].empty:
-                        log_records = _prepare_log_records(detail["log_df"], ticker, episode=ep)
-                        db.insert_trading_log(log_records)
-                        logger.info("  Saved %d ablation log rows for %s (%s, ep=%d)",
-                                    len(log_records), ticker, condition, ep)
+        # Checkpoint after each ticker
+        with open(_checkpoint_file, "w", encoding="utf-8") as _f:
+            _json.dump(ablation_results, _f, indent=2, default=str)
 
-    # ── Layer 0: Seed Variance (only when multi-seed enabled) ──
-    if config.ABLATION_MULTI_SEED:
-        logger.info("\n" + "=" * 60)
-        logger.info("LAYER 0: DQN Training Variance (multi-seed)")
-        logger.info("=" * 60)
-        for ticker, result in ablation_results.items():
-            with_std = result["with_nlp"]["seed_std"]["sharpe_ratio"]
-            without_std = result["without_nlp"]["seed_std"]["sharpe_ratio"]
-            logger.info("%s: with-NLP Sharpe σ=%.4f | without-NLP Sharpe σ=%.4f",
-                        ticker, with_std, without_std)
-
-    # ── Layer 1: Ablation Summary ──
+    # ── Layer 1: NLP Ablation Summary ──
     logger.info("\n" + "=" * 60)
     logger.info("LAYER 1: NLP Contribution (Ablation Δ)")
     logger.info("=" * 60)
@@ -502,10 +450,14 @@ def step_ablation(db: DatabaseManager) -> dict:
     nlp_mdd_improved = 0
     for ticker, result in ablation_results.items():
         s = result["summary"]
-        std_info = f"±{s.get('sharpe_delta_std', 0):.4f}" if s.get('sharpe_delta_std', 0) > 0 else ""
-        logger.info("%s: Sharpe Δ=%+.4f%s, Return Δ=%+.4f, MDD Δ=%+.4f, NLP helps=%s",
-                    ticker, s["sharpe_delta"], std_info,
-                    s["return_delta"], s.get("mdd_delta", 0), s["nlp_improves_sharpe"])
+        seed_var = ""
+        if config.ABLATION_MULTI_SEED:
+            w_std = result["with_nlp"]["seed_std"]["sharpe_ratio"]
+            wo_std = result["without_nlp"]["seed_std"]["sharpe_ratio"]
+            seed_var = f" | seed_σ with=%.3f without=%.3f" % (w_std, wo_std)
+        logger.info("%s: Sharpe Δ=%+.4f, Return Δ=%+.4f, MDD Δ=%+.4f, NLP helps=%s%s",
+                    ticker, s["sharpe_delta"], s["return_delta"],
+                    s.get("mdd_delta", 0), s["nlp_improves_sharpe"], seed_var)
         if s["sharpe_delta"] > 0.01:
             nlp_positive += 1
         elif s["sharpe_delta"] < -0.01:
@@ -614,11 +566,14 @@ def step_ablation(db: DatabaseManager) -> dict:
     logger.info("  Significant at 5%%: %s  |  Significant at 1%%: %s",
                 bt["significant_05"], bt["significant_01"])
     logger.info("Paired t-test (Sharpe diff): t=%.4f, p=%.4f, Cohen's d=%.3f (%s)",
-                tt.get("t_stat", 0), tt["p_value"], tt["cohens_d"], tt["effect_size"])
+                tt.get("t_stat", 0), tt["p_value"], tt.get("cohens_d", 0),
+                tt.get("effect_size", "n<3"))
     logger.info("  CI 95%%: [%.4f, %.4f]  |  Significant: %s",
-                tt["ci_95"][0], tt["ci_95"][1], tt["significant_05"])
+                tt.get("ci_95", [0, 0])[0], tt.get("ci_95", [0, 0])[1],
+                tt.get("significant_05", False))
     logger.info("Bootstrap CI 95%% on Sharpe diff: [%.4f, %.4f]  |  Zero in CI: %s",
-                bc["ci_95"][0], bc["ci_95"][1], bc["zero_in_ci_95"])
+                bc.get("ci_95", [0, 0])[0], bc.get("ci_95", [0, 0])[1],
+                bc.get("zero_in_ci_95", True))
     logger.info("\n  >>> %s", stat_results["interpretation"])
 
     mc_fdr = stat_results["multiple_comparison_fdr"]
